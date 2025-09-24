@@ -1,0 +1,48 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.conda/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.code-workspace
+
+# Local configuration and secrets
+config/settings.yaml
+prognoza/config/settings.yaml
+config/*.ovpn
+*.ovpn
+*.pem
+*.key
+*.crt
+*.cer
+.env
+.env.*
+
+# Local data and generated artifacts
+data/
+backups/
+exports/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
