@@ -1,7 +1,7 @@
 """Export notificari fizice catre format XML/CSV pentru Transelectrica."""
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Optional
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -73,8 +73,21 @@ def save_csv(notification: PhysicalNotification, path: Path, unit_id: str) -> No
 
 
 def ensure_deadline(delivery_day: datetime, submit_time: datetime, tz: str = "Europe/Bucharest") -> bool:
+    """Returneaza ``True`` daca notificarea este transmisa pana la D-1 ora 15:00."""
+
     zone = ZoneInfo(tz)
-    delivery_ref = delivery_day.astimezone(zone) if delivery_day.tzinfo else delivery_day.replace(tzinfo=zone)
-    deadline = datetime.combine(delivery_ref.date(), time(hour=15), tzinfo=zone)
-    submit_ref = submit_time.astimezone(zone) if submit_time.tzinfo else submit_time.replace(tzinfo=zone)
+
+    if delivery_day.tzinfo is None:
+        delivery_ref = delivery_day.replace(tzinfo=zone)
+    else:
+        delivery_ref = delivery_day.astimezone(zone)
+
+    deadline_date = delivery_ref.date() - timedelta(days=1)
+    deadline = datetime.combine(deadline_date, time(hour=15), tzinfo=zone)
+
+    if submit_time.tzinfo is None:
+        submit_ref = submit_time.replace(tzinfo=zone)
+    else:
+        submit_ref = submit_time.astimezone(zone)
+
     return submit_ref <= deadline
