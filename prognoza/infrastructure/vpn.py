@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -18,15 +19,25 @@ class OpenVPNError(RuntimeError):
     """Erori la pornirea sau gestionarea conexiunii OpenVPN."""
 
 
+def _looks_like_windows_absolute(path: str) -> bool:
+    return (
+        len(path) > 1 and path[1] == ":"
+        or path.startswith("\\\\")
+        or path.startswith("//")
+    )
+
+
 @dataclass
 class OpenVPNManager:
     profile: Path
-    executable: str = "openvpn"
+    executable: str | Path = "openvpn"
     log_dir: Path = Path("logs")
     up_timeout_s: int = 120
 
     def __post_init__(self) -> None:
         self.profile = self.profile.expanduser().resolve()
+        if not self.profile.exists():
+            raise OpenVPNError(f"OpenVPN profile not found: {self.profile}")
         self.log_dir = self.log_dir.expanduser().resolve()
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self._process: Optional[subprocess.Popen[str]] = None
@@ -47,9 +58,7 @@ class OpenVPNManager:
         timeout = timeout_s or self.up_timeout_s
         timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         log_path = self.log_dir / f"openvpn_{self.profile.stem}_{timestamp}.log"
-        executable_path = str(self.executable)
-        if isinstance(self.executable, Path):
-            executable_path = str(self.executable)
+        executable_path = self._resolve_executable()
         creationflags = 0
         if os.name == "nt":
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
@@ -67,6 +76,7 @@ class OpenVPNManager:
             raise OpenVPNError("Insufficient privileges to launch OpenVPN (run as Administrator)") from exc
         assert self._process.stdout is not None
         start_time = time.monotonic()
+        self._log_file = log_path
         with log_path.open("w", encoding="utf-8") as log_handle:
             while True:
                 if timeout and time.monotonic() - start_time > timeout:
@@ -89,8 +99,6 @@ class OpenVPNManager:
                 if "Initialization Sequence Completed" in line:
                     self._connected = True
                     break
-        self._log_file = log_path
-
     def stop(self, wait_s: float = 10.0) -> None:
         if not self._process or self._process.poll() is not None:
             self._process = None
@@ -123,16 +131,34 @@ class OpenVPNManager:
         self._process = None
         self._connected = False
 
+    def _resolve_executable(self) -> str:
+        executable = self.executable
+        if isinstance(executable, Path):
+            expanded = executable.expanduser()
+            text_path = str(expanded)
+            if expanded.exists():
+                return text_path
+            if not expanded.is_absolute() and not _looks_like_windows_absolute(text_path):
+                resolved = expanded.resolve()
+                if resolved.exists():
+                    return str(resolved)
+                text_path = str(resolved)
+            raise OpenVPNError(f"OpenVPN executable not found: {text_path}")
+        candidate = Path(executable).expanduser()
+        if candidate.exists():
+            return str(candidate.resolve())
+        resolved = shutil.which(executable)
+        if not resolved:
+            raise OpenVPNError(f"OpenVPN executable not found: {executable}")
+        return resolved
+
 
 def create_vpn_manager(router: RouterConfig, log_dir: Path = Path("logs"), timeout_s: int = 120) -> OpenVPNManager:
     if not router.openvpn_profile:
         raise OpenVPNError("Router configuration does not provide `openvpn_profile` path")
-    executable: str | Path = "openvpn"
-    if router.openvpn_executable:
-        executable = router.openvpn_executable
     manager = OpenVPNManager(
         profile=router.openvpn_profile,
-        executable=str(executable),
+        executable=router.openvpn_executable or "openvpn",
         log_dir=log_dir,
         up_timeout_s=timeout_s,
     )
