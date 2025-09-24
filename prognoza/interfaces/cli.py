@@ -104,7 +104,12 @@ def read_umg(
             typer.echo(f"{key}: {value:.3f}")
 
     if auto_vpn and settings.router.openvpn_profile:
-        manager = create_vpn_manager(settings.router, timeout_s=vpn_timeout)
+        manager = None
+        try:
+            manager = create_vpn_manager(settings.router, timeout_s=vpn_timeout)
+        except OpenVPNError as exc:
+            typer.echo(f"Eroare la pregatirea tunelului VPN: {exc}")
+            raise typer.Exit(code=2)
         try:
             typer.echo("Pornire tunel OpenVPN...")
             manager.start(timeout_s=vpn_timeout)
@@ -117,7 +122,8 @@ def read_umg(
                 typer.echo(f"Verifica logul: {manager.log_file}")
             raise typer.Exit(code=2)
         finally:
-            manager.stop()
+            if manager:
+                manager.stop()
     else:
         _read()
 

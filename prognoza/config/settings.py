@@ -138,6 +138,29 @@ def _load_file(path: Path) -> Dict[str, object]:
     raise ConfigurationError("Unsupported configuration format; use YAML or JSON")
 
 
+def _looks_like_windows_absolute(path: str) -> bool:
+    return (
+        len(path) > 1 and path[1] == ":"
+        or path.startswith("\\\\")
+        or path.startswith("//")
+    )
+
+
+def _coerce_config_path(value: Path | str, base_dir: Path) -> Path:
+    if isinstance(value, Path):
+        raw_str = str(value)
+        candidate = value.expanduser()
+    else:
+        raw_str = str(value)
+        candidate = Path(value).expanduser()
+    if candidate.is_absolute() or _looks_like_windows_absolute(raw_str):
+        return candidate
+    base = base_dir
+    if candidate.parts and candidate.parts[0] == base_dir.name:
+        base = base_dir.parent
+    return (base / candidate).resolve()
+
+
 def _parse_http_config(raw: Dict[str, object]) -> UMGHTTPConfig:
     try:
         base_url = raw["base_url"]
@@ -175,17 +198,19 @@ def load_settings(path: Optional[Path | str] = None) -> Settings:
     for candidate in candidate_paths:
         if candidate.exists():
             raw = _load_file(candidate)
+            config_path = candidate
             break
     else:
         raise ConfigurationError("No configuration file found")
 
+    config_dir = config_path.parent.resolve()
     try:
         pre = PREInfo(**raw["pre"])
         modbus = ModbusDevice(**raw["modbus"])
         router_data = raw.get("router", {})
         for key in ("openvpn_profile", "ca_bundle", "openvpn_executable"):
             if router_data.get(key):
-                router_data[key] = Path(router_data[key])
+                router_data[key] = _coerce_config_path(router_data[key], config_dir)
         router = RouterConfig(**router_data)
         quality = QualityThresholds(**raw.get("quality", {}))
         deadlines = DeadlineConfig(**raw.get("deadlines", {}))

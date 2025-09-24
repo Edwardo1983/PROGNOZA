@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import struct
+import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -12,7 +13,6 @@ import requests
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusIOException
 from requests import Response
-from tenacity import RetryError, retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from prognoza.config.settings import ModbusDevice, UMGHTTPConfig
 
@@ -112,7 +112,6 @@ class UMG509Reader:
             self._session = requests.Session()
         return self._session
 
-    @retry(reraise=True, stop=stop_after_attempt(3), wait=wait_fixed(1), retry=retry_if_exception_type(ConnectionError))
     def read_realtime_measurements(self, fields: Optional[Iterable[str]] = None) -> Measurement:
         """Citeste valori instantanee necesare raportarii."""
         requested_fields = list(fields) if fields else list(REGISTER_MAP.keys())
@@ -128,11 +127,26 @@ class UMG509Reader:
             if canonical not in canonical_order:
                 canonical_order.append(canonical)
 
-        if self._use_http:
-            base_values = self._read_http(canonical_order)
+        max_attempts = max(1, getattr(self._config, "retry_attempts", 1))
+        last_error: Optional[Exception] = None
+        base_values: Optional[Dict[str, float]] = None
+        for attempt in range(max_attempts):
+            try:
+                if self._use_http:
+                    base_values = self._read_http(canonical_order)
+                else:
+                    base_values = self._read_modbus(canonical_order)
+            except ConnectionError as exc:
+                last_error = exc
+                if attempt < max_attempts - 1:
+                    time.sleep(1)
+                continue
+            break
         else:
-            base_values = self._read_modbus(canonical_order)
+            assert last_error is not None
+            raise last_error
 
+        assert base_values is not None
         values: Dict[str, float] = dict(base_values)
         for alias, canonical in FIELD_ALIASES.items():
             if canonical in base_values and alias not in values:
@@ -232,8 +246,6 @@ def fetch_measurements(
     try:
         with reader:
             return reader.read_realtime_measurements(fields)
-    except RetryError as exc:  # pragma: no cover
-        raise ConnectionError("Repeated read failure") from exc
     except AttributeError:
         # HTTP mode does not need context manager connection
         return reader.read_realtime_measurements(fields)
