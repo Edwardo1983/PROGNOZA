@@ -1,1 +1,0 @@
-"""Submodul prognoza."""
