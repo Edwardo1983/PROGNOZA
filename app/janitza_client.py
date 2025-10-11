@@ -320,25 +320,33 @@ class JanitzaUMG:
             return None
         return float(np.float32(value))
 
-    def export_csv(self, values: Dict[str, Optional[float]], path: Optional[Path] = None) -> Tuple[Dict[str, object], Path]:
+    def export_csv(
+        self,
+        values: Dict[str, Optional[float]],
+        timestamp: Optional[float] = None,
+        path: Optional[Path] = None,
+    ) -> Tuple[Dict[str, object], Path]:
         """Append readings to a daily CSV and return the stored row."""
-        timestamp = datetime.now(timezone.utc).astimezone()
-        timestamp_str = timestamp.isoformat()
+        if timestamp is not None:
+            capture_time = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone()
+        else:
+            capture_time = datetime.now(timezone.utc).astimezone()
+        timestamp_str = capture_time.replace(microsecond=0).isoformat()
 
-        exports_dir = Path(path) if path else settings.EXPORTS_DIR
+        exports_dir = Path(path) if path is not None else settings.EXPORTS_DIR
         exports_dir.mkdir(parents=True, exist_ok=True)
-        csv_path = exports_dir / f"umg_readings_{timestamp.date().isoformat()}.csv"
+        csv_path = exports_dir / f"umg_readings_{capture_time.date().isoformat()}.csv"
 
         if csv_path.exists():
             try:
                 head = pd.read_csv(csv_path, usecols=["timestamp"], nrows=1)
                 first_ts = datetime.fromisoformat(str(head.iloc[0]["timestamp"]))
             except Exception:  # pragma: no cover
-                first_ts = timestamp
+                first_ts = capture_time
         else:
-            first_ts = timestamp
+            first_ts = capture_time
 
-        elapsed_minutes = round((timestamp - first_ts).total_seconds() / 60.0, 2)
+        elapsed_minutes = round((capture_time - first_ts).total_seconds() / 60.0, 2)
         thresholds = [5, 10, 15, 30, 60]
         milestones = ";".join(str(t) for t in thresholds if elapsed_minutes >= t)
 
@@ -374,4 +382,12 @@ def load_umg_config() -> Dict[str, object]:
         "unit_id": umg_cfg.get("unit_id", 1),
         "registers": registers,
     }
+    polling_cfg = data.get("polling", {})
+    export_dir_cfg = polling_cfg.get("export_dir")
+    if export_dir_cfg:
+        export_path = Path(export_dir_cfg)
+        if not export_path.is_absolute():
+            export_path = settings.BASE_DIR / export_dir_cfg
+        resolved["export_dir"] = export_path
+    resolved["polling"] = polling_cfg
     return resolved

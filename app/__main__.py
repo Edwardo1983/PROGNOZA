@@ -64,7 +64,18 @@ def _run_poll_once() -> Dict[str, object]:
 def _run_poll_loop(minutes: float, cycles: int | None) -> None:
     _configure_logging()
     interval_s = max(1, int(minutes * 60))
-    poll_loop(interval_s=interval_s, cycles=cycles)
+    cfg = load_umg_config()
+    polling_cfg = cfg.get("polling", {}) if isinstance(cfg, dict) else {}
+    sync = polling_cfg.get("sync_to_wall_clock", True)
+    sync_tolerance = polling_cfg.get("sync_tolerance_s", 0.5)
+    max_drift = polling_cfg.get("sync_max_drift_s", 3.0)
+    poll_loop(
+        interval_s=interval_s,
+        cycles=cycles,
+        sync=bool(sync),
+        sync_tolerance_s=float(sync_tolerance),
+        max_drift_s=float(max_drift),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

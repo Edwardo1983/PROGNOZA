@@ -68,6 +68,9 @@ polling:
   export_dir: "data/exports"
   modbus_retries: 3
   modbus_retry_delay_s: 1.0
+  sync_to_wall_clock: true
+  sync_tolerance_s: 0.5
+  sync_max_drift_s: 3.0
   time_markers:
     - 5
     - 10
