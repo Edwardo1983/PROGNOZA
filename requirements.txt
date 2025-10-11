@@ -1,0 +1,21 @@
+# VPN Management Dependencies
+psutil>=5.9.0
+requests>=2.31.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Modbus Communication
+pymodbus==3.6.8
+
+# Configuration
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Logging
+colorlog>=6.7.0
