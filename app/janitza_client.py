@@ -134,19 +134,166 @@ class JanitzaUMG:
         }
 
     def read_registers(self) -> Dict[str, Optional[float]]:
-        """Read configured holding registers as IEEE-754 floats."""
+        """Read configured holding registers as IEEE-754 floats with batch optimization."""
+        start_total = time.perf_counter()
         client = ModbusTcpClient(host=self.host, port=self.modbus_port, timeout=self.timeout_s)
         if not client.connect():
             raise ConnectionError(f"Unable to establish Modbus TCP session with {self.host}:{self.modbus_port}")
 
         results: Dict[str, Optional[float]] = {}
+        timing_log = []
+
         try:
-            for name, address in self.registers.items():
-                value = self._read_float(client, address)
-                results[name] = value
+            # Grupeaza registrele consecutive pentru citiri batch
+            batches = self._group_consecutive_registers(self.registers)
+            LOGGER.debug(f"Grouped {len(self.registers)} registers into {len(batches)} batches")
+
+            idx = 0
+            for batch_start, batch_registers in batches:
+                idx += 1
+                batch_names = [name for name, _ in batch_registers]
+
+                if len(batch_registers) == 1:
+                    # Citire individuala (registru izolat)
+                    name, address = batch_registers[0]
+                    start_reg = time.perf_counter()
+                    value = self._read_float(client, address)
+                    elapsed_ms = (time.perf_counter() - start_reg) * 1000
+
+                    results[name] = value
+                    status = "OK" if value is not None else "FAILED"
+                    timing_log.append(f"{idx:02d}. {name:40s} @ {address:5d} = {elapsed_ms:7.2f}ms [{status}] [SINGLE]")
+
+                    if elapsed_ms > 1000:
+                        LOGGER.warning("Slow register read: %s @ %s took %.2fms", name, address, elapsed_ms)
+                else:
+                    # Citire batch (multiple registre consecutive)
+                    start_reg = time.perf_counter()
+                    batch_values = self._read_batch(client, batch_start, len(batch_registers))
+                    elapsed_ms = (time.perf_counter() - start_reg) * 1000
+
+                    # Distribuie valorile citite
+                    for (name, address), value in zip(batch_registers, batch_values):
+                        results[name] = value
+                        status = "OK" if value is not None else "FAILED"
+                        timing_log.append(f"{idx:02d}. {name:40s} @ {address:5d} = {elapsed_ms/len(batch_registers):7.2f}ms [{status}] [BATCH:{len(batch_registers)}]")
+                        idx += 1
+                    idx -= 1  # Adjust pentru loop
+
+                    if elapsed_ms > 1000:
+                        LOGGER.warning("Slow batch read: %d registers starting @ %s took %.2fms",
+                                     len(batch_registers), batch_start, elapsed_ms)
         finally:
             client.close()
+
+        total_elapsed = time.perf_counter() - start_total
+
+        # Scrie log detaliat in fisier separat
+        log_file = settings.DATA_DIR / "modbus_timing.log"
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"\n{'=' * 80}\n")
+            f.write(f"Modbus Read Session (BATCH MODE): {datetime.now(timezone.utc).astimezone().isoformat()}\n")
+            f.write(f"Host: {self.host}:{self.modbus_port} | Timeout: {self.timeout_s}s\n")
+            f.write(f"Total: {total_elapsed:.2f}s | Registers: {len(self.registers)} | Success: {sum(1 for v in results.values() if v is not None)}\n")
+            f.write(f"Batches: {len(batches)}\n")
+            f.write(f"{'-' * 80}\n")
+            for line in timing_log:
+                f.write(f"{line}\n")
+            f.write(f"{'=' * 80}\n")
+
+        LOGGER.info("Modbus read completed (BATCH): %.2fs, %d/%d registers OK", total_elapsed, sum(1 for v in results.values() if v is not None), len(self.registers))
+
         return results
+
+    def _group_consecutive_registers(self, registers: Dict[str, int]) -> list:
+        """
+        Grupeaza registrele consecutive pentru citiri batch.
+
+        Returns:
+            Lista de tupluri: [(adresa_start, [(nume, adresa), ...]), ...]
+        """
+        sorted_regs = sorted(registers.items(), key=lambda x: x[1])
+
+        batches = []
+        current_batch = []
+        last_address = None
+
+        for name, address in sorted_regs:
+            # Fiecare registru IEEE float = 2 words (4 bytes)
+            # Consecutive inseamna: address = last_address + 2
+            if last_address is None or address == last_address + 2:
+                current_batch.append((name, address))
+                last_address = address
+            else:
+                # Incepe un batch nou
+                if current_batch:
+                    batches.append((current_batch[0][1], current_batch))
+                current_batch = [(name, address)]
+                last_address = address
+
+        # Adauga ultimul batch
+        if current_batch:
+            batches.append((current_batch[0][1], current_batch))
+
+        return batches
+
+    def _read_batch(self, client: ModbusTcpClient, start_address: int, count: int) -> list:
+        """
+        Citeste multiple registre consecutive intr-o singura cerere.
+
+        Args:
+            client: Client Modbus
+            start_address: Adresa de start
+            count: Numar de registre IEEE float (fiecare = 2 words)
+
+        Returns:
+            Lista de valori float (None pentru erori)
+        """
+        try:
+            # Citeste count * 2 words (fiecare float = 2 words)
+            response = client.read_holding_registers(
+                address=start_address,
+                count=count * 2,
+                slave=self.unit_id
+            )
+
+            if not response or getattr(response, "isError", lambda: True)():
+                LOGGER.debug(f"Batch read error for address {start_address}, count={count}")
+                return [None] * count
+
+            registers_data = getattr(response, "registers", None)
+            if not registers_data or len(registers_data) != count * 2:
+                return [None] * count
+
+            # Decode fiecare float (2 words)
+            values = []
+            for i in range(count):
+                try:
+                    word_pair = registers_data[i*2:(i*2)+2]
+                    if len(word_pair) != 2:
+                        values.append(None)
+                        continue
+
+                    decoder = BinaryPayloadDecoder.fromRegisters(
+                        word_pair,
+                        byteorder=BIG_ENDIAN,
+                        wordorder=BIG_ENDIAN
+                    )
+                    value = decoder.decode_32bit_float()
+
+                    if math.isnan(value) or math.isinf(value):
+                        values.append(None)
+                    else:
+                        values.append(float(np.float32(value)))
+                except Exception as e:
+                    LOGGER.debug(f"Error decoding float at offset {i}: {e}")
+                    values.append(None)
+
+            return values
+
+        except Exception as exc:
+            LOGGER.debug(f"Batch read failed for {start_address}, count={count}: {exc}")
+            return [None] * count
 
     def _read_float(self, client: ModbusTcpClient, address: int) -> Optional[float]:
         try:

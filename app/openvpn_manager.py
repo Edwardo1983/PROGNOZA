@@ -116,7 +116,7 @@ class OpenVPNManager:
             creationflags=creation_flags,
         )
         self._logger.info("Disconnect command sent for profile %s", profile_name)
-        time.sleep(2)
+        # Eliminat time.sleep(2) - verificarea procesului este oricum instantanee
         process = self._locate_profile_process(profile_name)
         if process:
             try:

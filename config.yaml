@@ -2,7 +2,7 @@ umg:
   host: "192.168.1.30"
   http_port: 80
   modbus_port: 502
-  timeout_s: 3
+  timeout_s: 5  # Crescut la 5s pentru stabilitate pe VPN
   unit_id: 1
   registers:
     power_active_l1: 19020
@@ -45,26 +45,19 @@ umg:
     cos_phi_l2: 19046
     cos_phi_l3: 19048
     frequency: 19050
-    voltage_l1_n: 19000
-    voltage_l2_n: 19002
-    voltage_l3_n: 19004
-    voltage_l1_l2: 19006
-    voltage_l2_l3: 19008
-    voltage_l3_l1: 19010
-    current_l1: 19012
-    current_l2: 19014
-    current_l3: 19016
-    current_sum: 19018
-    energy_active_import: 19062
-    energy_active_export: 19070
-    energy_reactive_import: 19094
-    energy_reactive_export: 19102
+    # Tensiuni - eliminat voltage_l1_n duplicate, pastrat doar voltage_l1/l2/l3
     voltage_l1: 19000
     voltage_l2: 19002
     voltage_l3: 19004
-    current_l1_avg: 19012
-    current_l2_avg: 19014
-    current_l3_avg: 19016
+    voltage_l1_l2: 19006
+    voltage_l2_l3: 19008
+    voltage_l3_l1: 19010
+    # Curenti - eliminat current_l1/l2/l3 individual si avg, pastrat doar current_sum
+    current_sum: 19018
+    energy_active_import: 19062
+    # energy_active_export: 19070  # DUPLICAT cu energy_export_global_l1 @ 19070 - ELIMINAT
+    energy_reactive_import: 19094
+    energy_reactive_export: 19102
     power_factor: 19636
     thd_voltage_l1: 19110
     thd_current_l1: 19116

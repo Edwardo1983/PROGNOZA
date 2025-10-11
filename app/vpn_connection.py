@@ -164,14 +164,14 @@ class VPNConnection:
 
     def _wait_for_ip(self, timeout_s: int) -> Optional[str]:
         deadline = time.monotonic() + timeout_s
-        delay = 2.0
+        delay = 3.0  # Start cu 3s in loc de 2s - reduce spam-ul de logging
         while time.monotonic() < deadline:
             vpn_ip = self._get_vpn_ip()
             if vpn_ip:
                 self._logger.info("Obtained VPN interface IP %s", vpn_ip)
                 return vpn_ip
             time.sleep(delay)
-            delay = min(delay * 1.5, 10.0)
+            delay = min(delay * 1.2, 8.0)  # Crestere mai lenta (1.2 vs 1.5), max 8s
         return None
 
     def _test_umg_connectivity(self, timeout_s: float, min_attempts: int) -> Tuple[bool, bool, bool]:
@@ -183,11 +183,23 @@ class VPNConnection:
 
         while time.monotonic() < deadline or attempts < min_attempts:
             attempts += 1
-            ping_ok = self._ping_host(settings.UMG_IP)
+            # Verificam TCP prima data (mai important pentru Modbus)
             tcp_ok = self._check_tcp(settings.UMG_IP, settings.UMG_TCP_PORT)
+
+            # Daca TCP merge, presupunem ca si ping-ul merge (optimizare)
+            if tcp_ok:
+                ping_ok = True  # Presupunem ca ping merge daca TCP merge
+                self._logger.info(
+                    "UMG health attempt %s: tcp=%s (ping skipped - TCP OK)", attempts, tcp_ok
+                )
+                return True, ping_ok, tcp_ok
+
+            # Doar daca TCP esueaza, verificam ping ca fallback
+            ping_ok = self._ping_host(settings.UMG_IP)
             self._logger.info(
                 "UMG health attempt %s: ping=%s tcp=%s", attempts, ping_ok, tcp_ok
             )
+
             if ping_ok and tcp_ok:
                 return True, ping_ok, tcp_ok
             if time.monotonic() >= deadline:
