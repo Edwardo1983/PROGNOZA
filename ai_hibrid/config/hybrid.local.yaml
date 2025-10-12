@@ -1,0 +1,19 @@
+site:
+  latitude: 44.538476
+  longitude: 25.795695
+  timezone: "Europe/Brezoaia"
+  altitude: 118
+
+system:
+  kWp: 100.0
+  tilt: 25.0
+  azimuth: 180.0
+  gamma_Pmp: -0.0045
+  bos_loss: 0.08
+
+temperature_model:
+  c1: 0.035
+  c2: -1.0
+
+training:
+  validation_fraction: 0.2

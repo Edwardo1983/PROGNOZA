@@ -17,6 +17,7 @@ Automated monitoring system for Janitza UMG 509 PRO energy analyzers via OpenVPN
 - **Configurable Registers**: YAML-based register mapping
 - **Windows Task Scheduler Ready**: Run as scheduled background task
 - **Pluggable Weather Ingestion**: OpenWeather, Open-Meteo, and Tomorrow.io feeds with unified schema
+- **Hybrid PV Forecasting**: Physics + XGBoost stack with clear-sky baseline and auto-blended forecasts
 
 ---
 
@@ -153,6 +154,23 @@ python -m weather.router --nowcast 2 --out data/weather/nowcast.parquet
 ```
 
 The router walks providers by priority (lowest number wins), uses the on-disk cache per provider TTL, and falls back automatically when higher tiers lack coverage. Use helpers in `weather.normalize` if you need to plug in additional feeds.
+
+### Hybrid PV Forecasting
+
+1. Copy the hybrid template and adjust site/system parameters:
+   ```powershell
+   Copy-Item ai_hibrid\config\hybrid.yaml ai_hibrid\config\hybrid.local.yaml
+   ```
+2. Train the physics+ML stack on historical measurements and weather:
+   ```bash
+   python -m ai_hibrid.pipeline.train --meas data/raw/umg509/2024-01-01.csv --weather data/weather/hourly.csv --cfg ai_hibrid/config/hybrid.local.yaml
+   ```
+3. Generate day-ahead forecasts (with optional evaluation if you have actuals):
+   ```bash
+   python -m ai_hibrid.pipeline.predict --weather data/weather/hourly.csv --horizon 48 --out data/forecasts/power_48h.csv --actuals data/raw/umg509/2024-01-02.csv
+   ```
+
+The training command saves `xgb.pkl`, blend weights, and training metrics inside `ai_hibrid/models/artifacts/`. The predict step writes the blended forecast CSV plus a companion `.metrics.json` file whenever reference measurements are provided.
 
 ### Device Health Check
 
