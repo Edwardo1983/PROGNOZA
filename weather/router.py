@@ -16,7 +16,7 @@ from .cache import WeatherCache
 from .normalize import empty_frame
 from .providers.openmeteo_ecmwf import OpenMeteoECMWFProvider
 from .providers.openweather import OpenWeatherProvider
-from .providers.rainviewer_nowcast import RainviewerNowcastProvider
+from .providers.tomorrow_io import TomorrowIOProvider
 
 
 def load_weather_config(path: Optional[Path | str] = None) -> Dict[str, object]:
@@ -77,12 +77,14 @@ def build_providers(
                     timezone=config.get("timezone", "UTC"),
                 )
             )
-        elif provider_type == "rainviewer_nowcast":
-            api_key = entry.get("api_key") or os.getenv("RAINVIEWER_API_KEY")
+        elif provider_type == "tomorrow_io":
+            api_key = entry.get("api_key") or os.getenv("TOMORROW_IO_API_KEY") or os.getenv("TOMORROWIO_API_KEY")
             instantiated.append(
-                RainviewerNowcastProvider(
+                TomorrowIOProvider(
+                    latitude=float(entry.get("lat", lat)),
+                    longitude=float(entry.get("lon", lon)),
                     api_key=api_key,
-                    ttl=ttl_seconds or 600,
+                    ttl=ttl_seconds or 900,
                     priority=priority,
                     cache=cache,
                 )

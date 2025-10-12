@@ -6,11 +6,11 @@ The `weather` package consolidates multiple external forecast feeds into a singl
 
 - `core.py` – shared schema, provider base class, resampling helpers, and `ForecastFrame` wrapper.  
 - `cache.py` – lightweight SQLite cache that stores provider responses as pandas frames with per-scope TTLs.  
-- `normalize.py` – unit conversion and parsing helpers for OpenWeather, Open-Meteo, and Rainviewer payloads.  
+- `normalize.py` – unit conversion and parsing helpers for OpenWeather, Open-Meteo, and Tomorrow.io payloads.  
 - `providers/` – concrete adapters:
   - `openweather.py` (One Call 3.0 hourly/current)
   - `openmeteo_ecmwf.py` (ECMWF/ICON hourly via Open-Meteo)
-  - `rainviewer_nowcast.py` (radar nowcast proxy; falls back to stub when no API key)
+  - `tomorrow_io.py` (hourly + 15min timelines via Tomorrow.io v4)
 - `router.py` – `WeatherRouter` coordinator, config loader, and CLI entry point.  
 - `config_example.yaml` – starter configuration describing location, provider priorities, and TTLs.
 
@@ -23,7 +23,7 @@ The `weather` package consolidates multiple external forecast feeds into a singl
 2. Define credentials in `.env` or environment variables:
    ```env
    OPENWEATHER_API_KEY=your-one-call-key
-   RAINVIEWER_API_KEY=optional-radar-token
+   TOMORROW_IO_API_KEY=your-tomorrow-io-key
    WEATHER_ROUTER_TZ=Europe/Bucharest
    ```
 3. Fetch an aligned hourly forecast:
@@ -71,4 +71,4 @@ Run the full suite with:
 - `location.lat`/`location.lon` drive geographical queries; override per-provider if needed.  
 - `providers[].priority` controls merge order (lower value = higher priority).  
 - `providers[].ttl` sets cache expiry per provider/scope; defaults are chosen to respect upstream rate limits.  
-- Rainviewer nowcast gracefully returns an empty frame when no API key is available, enabling offline operation.
+- Tomorrow.io timelines provide 15-minute resolution; the router interpolates if finer steps are requested.

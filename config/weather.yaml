@@ -1,7 +1,7 @@
-timezone: "Europe/Bucharest"
+timezone: "Europe/Brezoaia"
 location:
-  lat: 44.4268
-  lon: 26.1025
+  lat: 44.538476
+  lon: 25.795695
 providers:
   - type: openweather
     priority: 10

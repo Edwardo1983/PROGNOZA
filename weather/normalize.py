@@ -120,27 +120,32 @@ def _convert_windspeed(hourly: Dict[str, Iterable[Any]], units: Optional[str], i
     return float(value)
 
 
-def normalize_rainviewer(payload: Dict[str, Any]) -> pd.DataFrame:
-    """Rainviewer returns nowcast arrays; map them onto the unified schema."""
-    entries = payload.get("entries") or payload.get("data") or []
-    rows = []
-    for item in entries:
-        timestamp = item.get("time") or item.get("dt")
-        if timestamp is None:
-            continue
-        dt = pd.to_datetime(timestamp, utc=True)
-        rows.append(
-            {
-                "timestamp": dt,
-                "temp_C": _safe_float(item.get("temp_C")),
-                "wind_ms": _safe_float(item.get("wind_ms")),
-                "wind_deg": _safe_float(item.get("wind_deg")),
-                "clouds_pct": _safe_float(item.get("clouds_pct")),
-                "humidity": _safe_float(item.get("humidity")),
-                "uvi": _safe_float(item.get("uvi")),
-                "ghi_Wm2": _safe_float(item.get("ghi_Wm2")),
-            }
-        )
+def normalize_tomorrow(payload: Dict[str, Any]) -> pd.DataFrame:
+    timelines = payload.get("data", {}).get("timelines") or []
+    if not timelines:
+        return _build_frame([])
+
+    rows: List[Dict[str, Any]] = []
+    for timeline in timelines:
+        intervals = timeline.get("intervals") or []
+        for interval in intervals:
+            timestamp = interval.get("startTime")
+            values = interval.get("values") or {}
+            if timestamp is None:
+                continue
+            dt = pd.to_datetime(timestamp, utc=True)
+            rows.append(
+                {
+                    "timestamp": dt,
+                    "temp_C": _safe_float(values.get("temperature")),
+                    "wind_ms": _safe_float(values.get("windSpeed")),
+                    "wind_deg": _safe_float(values.get("windDirection")),
+                    "clouds_pct": _safe_float(values.get("cloudCover")),
+                    "humidity": _safe_float(values.get("humidity")),
+                    "uvi": _safe_float(values.get("uvIndex")),
+                    "ghi_Wm2": _safe_float(values.get("solarGHI")),
+                }
+            )
     return _build_frame(rows)
 
 

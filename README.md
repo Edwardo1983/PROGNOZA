@@ -16,7 +16,7 @@ Automated monitoring system for Janitza UMG 509 PRO energy analyzers via OpenVPN
 - **Health Monitoring**: HTTP and Modbus connectivity checks
 - **Configurable Registers**: YAML-based register mapping
 - **Windows Task Scheduler Ready**: Run as scheduled background task
-- **Pluggable Weather Ingestion**: OpenWeather, Open-Meteo, and Rainviewer feeds with unified schema
+- **Pluggable Weather Ingestion**: OpenWeather, Open-Meteo, and Tomorrow.io feeds with unified schema
 
 ---
 
@@ -136,7 +136,7 @@ python -m app vpn-stop
 2. Expose API keys via environment variables or `.env` (auto-loaded):
    ```env
    OPENWEATHER_API_KEY=your-one-call-key
-   RAINVIEWER_API_KEY=optional-radar-token
+   TOMORROW_IO_API_KEY=your-tomorrow-io-key
    ```
 3. Toggle numerical models in `config/weather.yaml` (e.g. `models: ["ecmwf", "icon"]`).
 
