@@ -1,0 +1,17 @@
+timezone: "Europe/Bucharest"
+location:
+  lat: 44.4268
+  lon: 26.1025
+providers:
+  - type: openweather
+    priority: 10
+    ttl: 1800           # seconds
+    api_key: "${OPENWEATHER_API_KEY}"
+  - type: openmeteo_ecmwf
+    priority: 20
+    ttl: 3600
+    models: ["ecmwf", "icon"]
+  - type: rainviewer_nowcast
+    priority: 30
+    ttl: 900
+    api_key: "${RAINVIEWER_API_KEY:-}"

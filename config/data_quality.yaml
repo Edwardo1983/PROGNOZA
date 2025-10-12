@@ -1,0 +1,9 @@
+timezone: "Europe/Bucharest"
+drift_sec_max: 3
+ranges:
+  voltage_v: [195, 264]
+  current_a: [0, 10000]
+  freq_hz: [49.0, 51.0]
+  pf: [0.0, 1.0]
+  thd_pct: [0.0, 100.0]
+forward_fill_max: 2

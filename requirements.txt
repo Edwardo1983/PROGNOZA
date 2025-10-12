@@ -5,6 +5,7 @@ requests>=2.31.0
 # Data Processing
 pandas>=2.0.0
 numpy>=1.24.0
+matplotlib>=3.8.0
 
 # Modbus Communication
 pymodbus==3.6.8

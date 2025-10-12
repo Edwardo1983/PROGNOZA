@@ -16,6 +16,7 @@ Automated monitoring system for Janitza UMG 509 PRO energy analyzers via OpenVPN
 - **Health Monitoring**: HTTP and Modbus connectivity checks
 - **Configurable Registers**: YAML-based register mapping
 - **Windows Task Scheduler Ready**: Run as scheduled background task
+- **Pluggable Weather Ingestion**: OpenWeather, Open-Meteo, and Rainviewer feeds with unified schema
 
 ---
 
@@ -125,6 +126,33 @@ python -m app vpn-status
 # Stop VPN
 python -m app vpn-stop
 ```
+
+### Weather Ingestion
+
+1. Copy the example configuration and customise it for your site:
+   ```powershell
+   Copy-Item weather\config_example.yaml config\weather.yaml
+   ```
+2. Expose API keys via environment variables or `.env` (auto-loaded):
+   ```env
+   OPENWEATHER_API_KEY=your-one-call-key
+   RAINVIEWER_API_KEY=optional-radar-token
+   ```
+3. Toggle numerical models in `config/weather.yaml` (e.g. `models: ["ecmwf", "icon"]`).
+
+Fetch unified hourly forecasts (UTC index with `temp_C`, `wind_ms`, `wind_deg`, `clouds_pct`, `humidity`, `uvi`, `ghi_Wm2`, `source`):
+
+```bash
+python -m weather.router --hourly 48 --out data/weather/hourly.parquet
+```
+
+Generate a radar-backed nowcast resampled to 15 minutes:
+
+```bash
+python -m weather.router --nowcast 2 --out data/weather/nowcast.parquet
+```
+
+The router walks providers by priority (lowest number wins), uses the on-disk cache per provider TTL, and falls back automatically when higher tiers lack coverage. Use helpers in `weather.normalize` if you need to plug in additional feeds.
 
 ### Device Health Check
 
