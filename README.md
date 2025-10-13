@@ -119,6 +119,17 @@ python -m app poll-loop --minutes 1 --cycles 10
 
 Proiectul include un nou CLI bilingual (RO/EN) bazat pe Typer + Rich:
 
+## Running tests
+
+The repository ships with a deterministic pytest suite. Ensure dependencies are installed, then execute:
+
+```bash
+pip install -r requirements.txt
+pytest
+```
+
+Test logs are written to `logs/tests/` for easier triage.
+
 ```bash
 # English examples
 python -m cli.app vpn status
