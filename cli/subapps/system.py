@@ -12,7 +12,7 @@ from ai.orchestrator import AIOrchestrator
 from ai_hibrid.pipeline.train import train_pipeline
 from app.poll import poll_once
 
-from ..common import console
+from ..common import console, ensure_dir
 from ..i18n import t
 from .weather import _build_router
 
@@ -27,6 +27,27 @@ def _sleep_until(target: float) -> None:
         time.sleep(min(remaining, 1.0))
 
 
+def _ceil_to_interval(timestamp: float, interval: int) -> float:
+    return (int(timestamp) // interval + 1) * interval
+
+
+def _persist_weather(frame, csv_path: Path) -> None:
+    if frame is None or frame.empty:
+        return
+    csv_path = ensure_dir(csv_path)
+    parquet_path = csv_path.with_suffix(".parquet")
+    frame.reset_index().to_csv(csv_path, index=False)
+    frame.to_parquet(parquet_path)
+
+
+def _resolve_hourly_target() -> Path:
+    weather_dir = Path("data/weather")
+    candidates = sorted(weather_dir.glob("*48h*.csv"))
+    if candidates:
+        return candidates[0]
+    return weather_dir / "hourly_48h.csv"
+
+
 @system_app.command("vpn-weather")
 def vpn_weather(
     period: int = typer.Option(60, min=10),
@@ -37,9 +58,11 @@ def vpn_weather(
     router = _build_router(config) if config else None
     stop_event = threading.Event()
     start_time = time.time()
+    hourly_target = _resolve_hourly_target()
+    last_hourly_fetch = 0.0
 
     def poll_thread() -> None:
-        next_run = time.time()
+        next_run = _ceil_to_interval(time.time(), period)
         while not stop_event.is_set():
             try:
                 poll_once(scheduled_wall_time=next_run)
@@ -53,10 +76,18 @@ def vpn_weather(
     def weather_thread() -> None:
         if router is None:
             return
-        next_run = time.time()
+        next_run = _ceil_to_interval(time.time(), period)
+        nonlocal last_hourly_fetch
         while not stop_event.is_set():
             try:
-                router.get_nowcast(2)
+                now_df = router.get_nowcast(2)
+                _persist_weather(now_df, Path("data/weather/nowcast.csv"))
+                if time.time() - last_hourly_fetch >= 900:
+                    start = datetime.utcnow()
+                    horizon = start + timedelta(hours=48)
+                    hourly_df = router.get_hourly(start, horizon)
+                    _persist_weather(hourly_df, hourly_target)
+                    last_hourly_fetch = time.time()
             except Exception as exc:  # noqa: BLE001
                 console().print(f"[red]Weather nowcast failed:[/] {exc}")
             next_run += period
@@ -98,7 +129,9 @@ def vpn_weather_train(
     console().print(t("system.running"))
     router = _build_router(None)
     start = time.time()
-    next_run = time.time()
+    next_run = _ceil_to_interval(time.time(), period)
+    hourly_target = _resolve_hourly_target()
+    last_hourly_fetch = 0.0
     try:
         while (time.time() - start) < collect_for:
             scheduled = next_run
@@ -107,7 +140,14 @@ def vpn_weather_train(
             except Exception as exc:  # noqa: BLE001
                 console().print(f"[red]Polling failed:[/] {exc}")
             try:
-                router.get_nowcast(2)
+                now_df = router.get_nowcast(2)
+                _persist_weather(now_df, Path("data/weather/nowcast.csv"))
+                if time.time() - last_hourly_fetch >= 900:
+                    start_hour = datetime.utcnow()
+                    horizon = start_hour + timedelta(hours=48)
+                    hourly_df = router.get_hourly(start_hour, horizon)
+                    _persist_weather(hourly_df, hourly_target)
+                    last_hourly_fetch = time.time()
             except Exception as exc:  # noqa: BLE001
                 console().print(f"[red]Weather nowcast failed:[/] {exc}")
             next_run += period

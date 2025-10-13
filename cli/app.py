@@ -10,6 +10,7 @@ from .menu import render_menu
 from .subapps.ai import ai_app
 from .subapps.ai_hibrid import ai_hibrid_app
 from .subapps.system import system_app
+from .subapps.ui import ui_app
 from .subapps.vpn import vpn_app
 from .subapps.weather import weather_app
 
@@ -19,6 +20,7 @@ app.add_typer(weather_app, name="weather")
 app.add_typer(ai_hibrid_app, name="ai-hibrid")
 app.add_typer(ai_app, name="ai")
 app.add_typer(system_app, name="system")
+app.add_typer(ui_app, name="ui")
 
 
 @app.callback(invoke_without_command=True)
@@ -40,6 +42,7 @@ def main(ctx: typer.Context) -> None:
             ("ai-hibrid", t("menu.options.ai_hibrid")),
             ("ai", t("menu.options.ai")),
             ("system", t("menu.options.system")),
+            ("ui", "UI"),
             ("help", t("menu.options.help")),
         ]
         render_menu(menu_options)
@@ -52,13 +55,15 @@ def main(ctx: typer.Context) -> None:
             "3": "ai-hibrid",
             "4": "ai",
             "5": "system",
-            "6": "help",
+            "6": "ui",
+            "7": "help",
             "vpn": "vpn",
             "weather": "weather",
             "ai-hibrid": "ai-hibrid",
             "ai": "ai",
             "system": "system",
-            "help": "help",
+            "ui": "ui",
+            "help": "help"
         }
         selected = key_map.get(choice)
         if not selected:
@@ -95,6 +100,9 @@ def _show_commands(selection: str) -> None:
             "python -m cli.app system vpn-weather --period 60",
             "python -m cli.app system vpn-weather-train --period 60 --collect-for 7200",
             "python -m cli.app system full",
+        ],
+        "ui": [
+            "python -m cli.app ui start --host 127.0.0.1 --port 8090 --open",
         ],
         "help": [
             "python -m cli.app --help",

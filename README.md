@@ -133,6 +133,20 @@ python -m cli.app weather nowcast --hours 2 --out data/weather/nowcast.parquet
 
 La prima rulare vei fi întrebat `"Limba / Language? [ro/en]"`, alegerea fiind salvată în `.progonzarc`.
 
+### UI Dashboard
+
+Pornește interfața web locală (FastAPI + ECharts):
+
+```bash
+python -m cli.app ui start --host 127.0.0.1 --port 8090 --open
+```
+
+Se va deschide un dashboard cu două grafice:
+- **Janitza**: selectezi coloanele din CSV ca serii independente (culori auto-alocate), tabel cu ultimele valori și unități.
+- **Meteo**: alegi datasetul (nowcast, hourly, 48h etc.) și vizualizezi seriile corelate.
+
+Bara superioară oferă un calendar și preseturi de interval (Zi, 3 zile, Săptămână, Lună, An). Datele sunt re-eșantionate la 5 minute, iar ziua curentă este limitată la momentul actual. Fisierele citite provin din `data/raw/umg509/`, `data/weather/` și `data/forecasts/`.
+
 ### VPN Management
 
 ```bash

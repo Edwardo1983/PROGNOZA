@@ -331,6 +331,7 @@ class JanitzaUMG:
             capture_time = datetime.fromtimestamp(timestamp, tz=timezone.utc).astimezone()
         else:
             capture_time = datetime.now(timezone.utc).astimezone()
+        capture_time = capture_time.replace(second=0, microsecond=0)
         timestamp_str = capture_time.replace(microsecond=0).isoformat()
 
         exports_dir = Path(path) if path is not None else settings.EXPORTS_DIR

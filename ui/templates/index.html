@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="toolbar card" hx-get="/ui/controls" hx-target="#controls" hx-trigger="load">
+  <!-- Controls will be swapped here -->
+  <div id="controls" class="controls-placeholder"></div>
+</div>
+
+<div class="grid">
+  <section class="card">
+    <header class="card-header">
+      <h2>Janitza UMG 509 PRO</h2>
+    </header>
+    {% include "_left_chart.html" %}
+    <div id="janitza-table" class="table-wrapper" hx-trigger="load"></div>
+  </section>
+
+  <section class="card">
+    <header class="card-header">
+      <h2>Meteo</h2>
+    </header>
+    {% include "_right_chart.html" %}
+  </section>
+</div>
+{% endblock %}

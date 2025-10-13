@@ -1,0 +1,33 @@
+<div class="controls-grid">
+  <div class="control-group">
+    <label for="date-start">Interval</label>
+    <input type="date" id="date-start" name="date-start" value="{{ start.date() }}" />
+  </div>
+  <div class="range-buttons">
+    <button type="button" data-range="day" class="preset-btn">Zi</button>
+    <button type="button" data-range="3days" class="preset-btn">3 zile</button>
+    <button type="button" data-range="week" class="preset-btn">S&#259;pt&#259;mân&#259;</button>
+    <button type="button" data-range="month" class="preset-btn">Lun&#259;</button>
+    <button type="button" data-range="year" class="preset-btn">An</button>
+  </div>
+  <div class="control-group">
+    <label for="weather-select">Dataset meteo</label>
+    <select id="weather-select">
+      {% for option in weather_options %}
+      <option value="{{ option }}">{{ option }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+<div class="metrics-panel">
+  <h3>Metrici Janitza</h3>
+  <div class="metrics-list" id="metrics-list">
+    {% for metric in metrics %}
+    <label class="metric-chip">
+      <input type="checkbox" name="metrics" value="{{ metric }}" {% if loop.index0 < 3 %}checked{% endif %} data-default="{{ 1 if loop.index0 < 3 else 0 }}" />
+      <span>{{ metric }}</span>
+    </label>
+    {% endfor %}
+  </div>
+</div>
