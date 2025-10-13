@@ -2,14 +2,86 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 import yaml
+
+_INITIAL_ENV_KEYS = set(os.environ.keys())
+_ENV_FILES_LOADED: set[Path] = set()
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
+TIMEZONE_ALIASES: Dict[str, str] = {
+    "europe/brezoaia": "Europe/Bucharest",
+}
+
+
+def _load_env_file(path: Path) -> None:
+    resolved = path.resolve()
+    if resolved in _ENV_FILES_LOADED or not resolved.exists():
+        return
+    with resolved.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            key, sep, value = line.partition("=")
+            if not sep:
+                continue
+            key = key.strip()
+            if not key or key in _INITIAL_ENV_KEYS:
+                continue
+            value = value.strip()
+            if value and len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            os.environ[key] = value
+    _ENV_FILES_LOADED.add(resolved)
+
+
+def _load_env_files(candidates: Iterable[Path]) -> None:
+    for candidate in candidates:
+        _load_env_file(candidate)
+
+
+def _expand_env_values(value: object, *, source: Optional[Path] = None) -> object:
+    if isinstance(value, dict):
+        return {key: _expand_env_values(val, source=source) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_values(item, source=source) for item in value]
+    if isinstance(value, str):
+        def replacer(match: re.Match[str]) -> str:
+            var_name = match.group(1)
+            if var_name not in os.environ:
+                location = f" in config '{source}'" if source else ""
+                raise RuntimeError(f"Environment variable '{var_name}' referenced{location} is not set")
+            return os.environ[var_name]
+
+        return _ENV_VAR_PATTERN.sub(replacer, value)
+    return value
+
+logger = logging.getLogger(__name__)
+
+
+def _resolve_timezone(candidate: Optional[str]) -> str:
+    if not candidate:
+        return "UTC"
+    alias = TIMEZONE_ALIASES.get(candidate.lower())
+    zone_name = alias or candidate
+    try:
+        ZoneInfo(zone_name)
+    except ZoneInfoNotFoundError:
+        logger.warning("Unknown timezone '%s', falling back to UTC", candidate)
+        return "UTC"
+    if alias:
+        logger.info("Timezone alias '%s' resolved to '%s'", candidate, zone_name)
+    return zone_name
 
 from .core import Provider, REQUIRED_COLUMNS, align_frames, ensure_schema, resample_frame, to_local
 from .cache import WeatherCache
@@ -20,15 +92,24 @@ from .providers.tomorrow_io import TomorrowIOProvider
 
 
 def load_weather_config(path: Optional[Path | str] = None) -> Dict[str, object]:
-    candidates = []
-    if path:
-        candidates.append(Path(path))
+    config_path = Path(path) if path else None
+    module_root = Path(__file__).resolve().parent.parent
+    env_candidates: List[Path] = [module_root / ".env", Path(".env")]
+    if config_path is not None:
+        env_candidates.append(config_path.resolve().parent / ".env")
+    unique_env_candidates = list(dict.fromkeys(env_candidates))
+    _load_env_files(unique_env_candidates)
+
+    candidates: List[Path] = []
+    if config_path is not None:
+        candidates.append(config_path)
     candidates.append(Path("config") / "weather.yaml")
     candidates.append(Path("config") / "weather.yml")
     for candidate in candidates:
         if candidate.exists():
             with candidate.open("r", encoding="utf-8") as handle:
-                return yaml.safe_load(handle) or {}
+                data = yaml.safe_load(handle) or {}
+            return _expand_env_values(data, source=candidate)
     return {}
 
 
@@ -62,6 +143,7 @@ def build_providers(
                     ttl=ttl_seconds or 1800,
                     priority=priority,
                     cache=cache,
+                    skip_on_auth_failure=entry.get("skip_on_auth_failure", True),
                 )
             )
         elif provider_type == "openmeteo_ecmwf":
@@ -106,7 +188,11 @@ class WeatherRouter:
         end_ts = _as_utc_timestamp(end)
         frames: List[Tuple[str, pd.DataFrame]] = []
         for provider in self.sources:
-            forecast = provider.get_hourly(start_ts.to_pydatetime(), end_ts.to_pydatetime())
+            try:
+                forecast = provider.get_hourly(start_ts.to_pydatetime(), end_ts.to_pydatetime())
+            except Exception as exc:  # pragma: no cover - network errors handled at runtime
+                logger.warning("Hourly fetch failed for provider %s: %s", provider.name, exc)
+                continue
             df = forecast.ensure_schema().data
             df = df.loc[(df.index >= start_ts) & (df.index <= end_ts)]
             if df.empty:
@@ -124,7 +210,11 @@ class WeatherRouter:
         for provider in self.sources:
             if not provider.supports_nowcast():
                 continue
-            forecast = provider.get_nowcast(next_hours)
+            try:
+                forecast = provider.get_nowcast(next_hours)
+            except Exception as exc:  # pragma: no cover - network errors handled at runtime
+                logger.warning("Nowcast fetch failed for provider %s: %s", provider.name, exc)
+                continue
             df = forecast.ensure_schema().data
             if df.empty:
                 continue
@@ -160,9 +250,11 @@ def _merge(frames: Sequence[Tuple[str, pd.DataFrame]]) -> pd.DataFrame:
             current = result[column]
             incoming = aligned[column]
             fill_mask = current.isna() & incoming.notna()
-            result.loc[fill_mask, column] = incoming.loc[fill_mask]
+            if fill_mask.any():
+                result.loc[fill_mask, column] = incoming.loc[fill_mask]
         source_fill = row_mask & source.isna()
-        source.loc[source_fill] = name
+        if source_fill.any():
+            source.loc[source_fill] = name
 
     result["source"] = source
     return result
@@ -202,12 +294,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("Specify --hourly or --nowcast")
 
     config = load_weather_config(args.config)
+    tz_env = os.getenv("WEATHER_ROUTER_TZ")
+    tz_config = config.get("timezone")
+    tz = _resolve_timezone(tz_config) if tz_config else None
+    if tz is not None and tz_config is not None and tz != tz_config and tz_env and tz_env != tz_config:
+        tz = _resolve_timezone(tz_env)
+    elif tz is None and tz_env:
+        tz = _resolve_timezone(tz_env)
+    if tz is None:
+        tz = "UTC"
+    config["timezone"] = tz
+
     providers = build_providers(config)
     if not providers:
         raise SystemExit("No providers configured")
 
-    router = WeatherRouter(providers, tz=config.get("timezone", "UTC"))
-    now = pd.Timestamp.utcnow().tz_localize("UTC")
+    router = WeatherRouter(providers, tz=tz)
+    now = pd.Timestamp.now(tz="UTC")
 
     if args.hourly is not None:
         horizon = now + pd.Timedelta(hours=args.hourly)

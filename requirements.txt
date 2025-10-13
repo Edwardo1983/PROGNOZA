@@ -7,6 +7,7 @@ pandas>=2.0.0
 numpy>=1.24.0
 matplotlib>=3.8.0
 pvlib>=0.10.0
+pyarrow>=17.0.0
 
 # Modbus Communication
 pymodbus==3.6.8

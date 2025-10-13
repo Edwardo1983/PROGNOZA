@@ -1,15 +1,30 @@
 """Open-Meteo ECMWF/Icon provider."""
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
 import requests
 
 from ..core import ForecastFrame, Provider, ensure_schema, resample_frame
 from ..normalize import normalize_openmeteo
+
+MODEL_ALIASES = {
+    "ecmwf": "ecmwf_ifs04",
+    "ecmwf_ifs": "ecmwf_ifs04",
+    "ecmwf_ifs04": "ecmwf_ifs04",
+    "icon": "icon_seamless",
+    "icon_seamless": "icon_seamless",
+    "gfs": "gfs_seamless",
+    "gfs_seamless": "gfs_seamless",
+    "best_match": "best_match",
+    "auto": "best_match",
+}
+
+logger = logging.getLogger(__name__)
 
 
 class OpenMeteoECMWFProvider(Provider):
@@ -39,7 +54,7 @@ class OpenMeteoECMWFProvider(Provider):
         )
         self.latitude = latitude
         self.longitude = longitude
-        self.models = list(models or ["ecmwf"])
+        self.models = self._normalize_models(models)
         self.session = session or requests.Session()
         self.retries = retries
         self.backoff = backoff
@@ -78,7 +93,7 @@ class OpenMeteoECMWFProvider(Provider):
         return True
 
     def get_nowcast(self, next_hours: int = 2) -> ForecastFrame:
-        now_utc = pd.Timestamp.utcnow().tz_localize("UTC")
+        now_utc = pd.Timestamp.now(tz="UTC")
         horizon = now_utc + pd.Timedelta(hours=next_hours)
 
         payload = self._request()
@@ -90,6 +105,25 @@ class OpenMeteoECMWFProvider(Provider):
         resampled = resample_frame(window, "15min", method="interpolate")
         resampled = resampled.loc[resampled.index <= horizon]
         return ForecastFrame(resampled, {"source": self.name})
+
+    def _normalize_models(self, models: Optional[Iterable[str]]) -> List[str]:
+        if not models:
+            return ["best_match"]
+        normalized: List[str] = []
+        seen: set[str] = set()
+        for raw in models:
+            if raw is None:
+                continue
+            key = str(raw).strip()
+            if not key:
+                continue
+            alias = MODEL_ALIASES.get(key.lower(), key)
+            if alias not in seen:
+                seen.add(alias)
+                normalized.append(alias)
+        if not normalized:
+            normalized.append("best_match")
+        return normalized
 
     def _request(self) -> Dict[str, Any]:
         params = {

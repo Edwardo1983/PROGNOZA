@@ -12,7 +12,11 @@ from .core import REQUIRED_COLUMNS, ensure_schema
 
 def _build_frame(rows: List[Dict[str, Any]]) -> pd.DataFrame:
     if not rows:
-        return pd.DataFrame(columns=REQUIRED_COLUMNS, dtype=float)
+        return pd.DataFrame(
+            index=pd.DatetimeIndex([], tz="UTC"),
+            columns=REQUIRED_COLUMNS,
+            dtype=float,
+        )
     frame = pd.DataFrame(rows)
     if "timestamp" not in frame.columns:
         raise ValueError("Normalized rows must include 'timestamp'")

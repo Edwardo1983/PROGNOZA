@@ -74,7 +74,7 @@ class TomorrowIOProvider(Provider):
         return True
 
     def get_nowcast(self, next_hours: int = 2) -> ForecastFrame:
-        now_utc = pd.Timestamp.utcnow().tz_localize("UTC")
+        now_utc = pd.Timestamp.now(tz="UTC")
         horizon = now_utc + pd.Timedelta(hours=next_hours)
 
         def _fetch() -> pd.DataFrame:
