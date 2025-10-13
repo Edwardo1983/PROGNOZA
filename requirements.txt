@@ -1,6 +1,8 @@
 # VPN Management Dependencies
 psutil>=5.9.0
 requests>=2.31.0
+typer[all]>=0.12.3
+rich>=13.7.0
 
 # Data Processing
 pandas>=2.0.0

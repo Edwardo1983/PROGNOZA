@@ -115,6 +115,24 @@ python -m app poll-loop --minutes 1
 python -m app poll-loop --minutes 1 --cycles 10
 ```
 
+### CLI usage / Utilizare CLI
+
+Proiectul include un nou CLI bilingual (RO/EN) bazat pe Typer + Rich:
+
+```bash
+# English examples
+python -m cli.app vpn status
+python -m cli.app weather hourly --hours 48
+python -m cli.app ai-hibrid train --meas data/exports/umg_readings_2025-10-13.csv --weather data/weather/hourly.parquet
+python -m cli.app system full
+
+# Exemple în limba română (comenzile sunt aceleași)
+python -m cli.app vpn status
+python -m cli.app weather nowcast --hours 2 --out data/weather/nowcast.parquet
+```
+
+La prima rulare vei fi întrebat `"Limba / Language? [ro/en]"`, alegerea fiind salvată în `.progonzarc`.
+
 ### VPN Management
 
 ```bash
