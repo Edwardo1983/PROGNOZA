@@ -1,0 +1,18 @@
+providers:
+  openai:
+    model: gpt-4o-mini
+    max_tokens: 512
+  anthropic:
+    model: claude-3-haiku-20240307
+    max_tokens: 512
+
+llm:
+  temperature: 0.3
+  cost_cap_usd: 2.0
+
+selection:
+  default_model: hybrid_blend
+  confidence_threshold: 0.6
+
+drift:
+  psi_bins: 10
