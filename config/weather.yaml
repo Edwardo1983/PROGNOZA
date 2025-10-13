@@ -1,17 +1,63 @@
-timezone: "Europe/Brezoaia"
+# Weather Router Configuration
+# This file configures weather data providers for the PROGNOZA system
+
+timezone: "Europe/Brezoaia"  # Local timezone for your installation
+
 location:
-  lat: 44.538476
-  lon: 25.795695
+  lat: 44.538476   # Latitude for Brezoaia, Romania (update for your location)
+  lon: 25.795695   # Longitude for Brezoaia, Romania (update for your location)
+
+# Provider configuration (ordered by priority)
+# Lower priority number = higher preference
+# The router will try providers in order and fill gaps with fallbacks
+
 providers:
-  - type: openweather
-    priority: 10
-    ttl: 1800           # seconds
-    api_key: "${OPENWEATHER_API_KEY}"
+  # ========================================================================
+  # FREE PROVIDERS (NO API KEY REQUIRED)
+  # ========================================================================
+
+  # Open-Meteo ECMWF - FREE, HIGH QUALITY, NO API KEY
+  # Best choice for free weather data with ECMWF and ICON models
   - type: openmeteo_ecmwf
-    priority: 20
-    ttl: 3600
-    models: ["ecmwf", "icon"]
+    priority: 10              # Highest priority - use this first
+    ttl: 3600                 # Cache for 1 hour (model updates every 6h)
+    models: ["ecmwf", "icon"] # ECMWF IFS + DWD ICON models
+    # Available models: ecmwf_ifs04, icon_seamless, gfs_seamless, best_match
+
+  # ========================================================================
+  # PAID PROVIDERS (API KEY REQUIRED) - OPTIONAL
+  # ========================================================================
+
+  # OpenWeather One Call API - PAID (requires subscription)
+  # One Call 3.0 requires "One Call by Call" plan (~$40/month for 1M calls)
+  # Uncomment if you have a valid subscription
   - type: tomorrow_io
-    priority: 30
+    priority: 20
     ttl: 900
     api_key: "${TOMORROW_IO_API_KEY}"
+    skip_on_auth_failure: true  # Skip silently if auth fails
+
+  - type: openweather
+    priority: 30
+    ttl: 1800
+    api_key: "${OPENWEATHER_API_KEY}"
+    skip_on_auth_failure: true  # Skip silently if auth fails
+
+# ========================================================================
+# NOTES:
+# ========================================================================
+# 1. Open-Meteo is COMPLETELY FREE and provides excellent data quality
+#    from ECMWF IFS and DWD ICON numerical weather models
+#
+# 2. For most use cases, Open-Meteo alone is sufficient
+#
+# 3. If you need additional providers, sign up for:
+#    - Tomorrow.io free tier: 500 calls/day (good for nowcasting)
+#    - OpenWeather paid: Only if you need their specific data
+#
+# 4. Environment variables can be set in .env file:
+#    OPENWEATHER_API_KEY=your_key_here
+#    TOMORROW_IO_API_KEY=your_key_here
+#
+# 5. Override timezone at runtime with:
+#    $env:WEATHER_ROUTER_TZ="UTC"

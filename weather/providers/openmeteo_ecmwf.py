@@ -150,7 +150,11 @@ class OpenMeteoECMWFProvider(Provider):
             try:
                 response = self.session.get(self.API_ENDPOINT, params=params, timeout=10)
                 response.raise_for_status()
-                return response.json()
+                json_data = response.json()
+                # Validate that response contains expected structure
+                if not isinstance(json_data, dict):
+                    raise ValueError("API response is not a valid JSON object")
+                return json_data
             except Exception as exc:  # pragma: no cover - network failure
                 last_exc = exc
                 time.sleep(self.backoff * attempt)

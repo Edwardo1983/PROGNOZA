@@ -80,6 +80,12 @@ def resample_frame(
     if frame.empty:
         return frame
     working = ensure_schema(frame).copy()
+
+    # Ensure all columns are numeric (required columns should be float)
+    for col in working.columns:
+        if col in REQUIRED_COLUMNS:
+            working[col] = pd.to_numeric(working[col], errors='coerce')
+
     resampler = working.resample(freq)
     if method == "nearest":
         resampled = resampler.nearest(limit=limit)

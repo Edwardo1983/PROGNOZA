@@ -1,4 +1,4 @@
-timezone: "Europe/Bucharest"
+timezone: "Europe/Bucharest"  # Brezoaia, Dambovita uses Bucharest timezone
 drift_sec_max: 3
 ranges:
   voltage_v: [195, 264]

@@ -17,7 +17,8 @@ _INITIAL_ENV_KEYS = set(os.environ.keys())
 _ENV_FILES_LOADED: set[Path] = set()
 _ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 TIMEZONE_ALIASES: Dict[str, str] = {
-    "europe/brezoaia": "Europe/Bucharest",
+    "europe/brezoaia": "Europe/Bucharest",  # Brezoaia, Dambovita uses Bucharest timezone
+    "brezoaia": "Europe/Bucharest",
 }
 
 
@@ -144,6 +145,7 @@ def build_providers(
                     priority=priority,
                     cache=cache,
                     skip_on_auth_failure=entry.get("skip_on_auth_failure", True),
+                    api_mode=entry.get("api_mode", "auto"),
                 )
             )
         elif provider_type == "openmeteo_ecmwf":
@@ -169,6 +171,7 @@ def build_providers(
                     ttl=ttl_seconds or 900,
                     priority=priority,
                     cache=cache,
+                    skip_on_auth_failure=entry.get("skip_on_auth_failure", True),
                 )
             )
         else:
@@ -294,15 +297,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("Specify --hourly or --nowcast")
 
     config = load_weather_config(args.config)
+
+    # Priority: 1. Environment variable, 2. Config file, 3. Default UTC
     tz_env = os.getenv("WEATHER_ROUTER_TZ")
     tz_config = config.get("timezone")
-    tz = _resolve_timezone(tz_config) if tz_config else None
-    if tz is not None and tz_config is not None and tz != tz_config and tz_env and tz_env != tz_config:
+
+    if tz_env:
+        # Environment variable has highest priority
         tz = _resolve_timezone(tz_env)
-    elif tz is None and tz_env:
-        tz = _resolve_timezone(tz_env)
-    if tz is None:
+    elif tz_config:
+        # Config file timezone is second priority
+        tz = _resolve_timezone(tz_config)
+    else:
+        # Default to UTC
         tz = "UTC"
+
     config["timezone"] = tz
 
     providers = build_providers(config)

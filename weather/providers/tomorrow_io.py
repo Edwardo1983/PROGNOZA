@@ -29,6 +29,7 @@ class TomorrowIOProvider(Provider):
         base_url: Optional[str] = None,
         retries: int = 3,
         backoff: float = 1.0,
+        skip_on_auth_failure: bool = True,
     ) -> None:
         super().__init__(
             "tomorrow_io",
@@ -45,8 +46,16 @@ class TomorrowIOProvider(Provider):
         self.base_url = base_url or self.API_ENDPOINT
         self.retries = retries
         self.backoff = backoff
+        self.skip_on_auth_failure = skip_on_auth_failure
+        self._auth_failure_logged = False
+        self._permanently_disabled = False
 
     def get_hourly(self, start: datetime, end: datetime) -> ForecastFrame:
+        # Skip provider if permanently disabled due to auth failure
+        if self._permanently_disabled:
+            from ..normalize import empty_frame
+            return ForecastFrame(empty_frame(), {"source": self.name, "skipped": True})
+
         start_ts = self._as_utc(start)
         end_ts = self._as_utc(end)
 
@@ -74,6 +83,11 @@ class TomorrowIOProvider(Provider):
         return True
 
     def get_nowcast(self, next_hours: int = 2) -> ForecastFrame:
+        # Skip provider if permanently disabled due to auth failure
+        if self._permanently_disabled:
+            from ..normalize import empty_frame
+            return ForecastFrame(empty_frame(), {"source": self.name, "skipped": True})
+
         now_utc = pd.Timestamp.now(tz="UTC")
         horizon = now_utc + pd.Timedelta(hours=next_hours)
 
@@ -121,7 +135,27 @@ class TomorrowIOProvider(Provider):
             try:
                 response = self.session.post(self.base_url, params=params, json=payload, headers=headers, timeout=10)
                 response.raise_for_status()
-                return response.json()
+                json_data = response.json()
+                # Validate that response contains expected structure
+                if not isinstance(json_data, dict):
+                    raise ValueError("API response is not a valid JSON object")
+                return json_data
+            except requests.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response else None
+                if status_code in (401, 403) and self.skip_on_auth_failure:
+                    if not self._auth_failure_logged:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(
+                            "Tomorrow.io authentication failed with status %s; provider disabled. "
+                            "To use Tomorrow.io, obtain a valid API key from https://www.tomorrow.io/weather-api/",
+                            status_code,
+                        )
+                        self._auth_failure_logged = True
+                        self._permanently_disabled = True
+                    return {"data": {"timelines": []}}
+                last_exc = exc
+                time.sleep(self.backoff * attempt)
             except Exception as exc:  # pragma: no cover - network failure
                 last_exc = exc
                 time.sleep(self.backoff * attempt)

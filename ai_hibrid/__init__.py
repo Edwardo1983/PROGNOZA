@@ -1,27 +1,13 @@
-"""Hybrid physics + ML PV forecasting package."""
+"""Hybrid forecasting package."""
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict
+import importlib
+from typing import Any
 
-from .pipeline.dataset import build_training_dataset
-from .pipeline.train import train_pipeline
-from .pipeline.predict import predict_pipeline
-
-__all__ = [
-    "build_training_dataset",
-    "train_pipeline",
-    "predict_pipeline",
-]
-
-PACKAGE_ROOT = Path(__file__).resolve().parent
+__all__ = ["pipeline", "features", "models", "metrics"]
 
 
-def default_config_path() -> Path:
-    return PACKAGE_ROOT / "config" / "hybrid.yaml"
-
-
-def load_default_config() -> Dict[str, Any]:
-    from .pipeline.utils import load_config
-
-    return load_config(default_config_path())
+def __getattr__(name: str) -> Any:
+    if name in __all__:
+        return importlib.import_module(f"{__name__}.{name}")
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

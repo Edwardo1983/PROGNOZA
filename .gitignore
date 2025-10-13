@@ -53,6 +53,12 @@ secrets/
 app/data/raw/*.log
 data/exports/*.csv
 data/exports/
+ai_hibrid/models/artifacts/
+config/weather.yaml
+data/weather/*.csv
+data/weather/*.parquet
+logs/
+
 
 # Project specific - Personal README
 README_PERSONAL.md

@@ -1,4 +1,4 @@
-"""OpenWeather One Call provider."""
+"""OpenWeather provider supporting both One Call and free-plan forecast APIs."""
 from __future__ import annotations
 
 import logging
@@ -6,20 +6,32 @@ import os
 import re
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
 
-from ..core import ForecastFrame, Provider, ensure_schema
-from ..normalize import normalize_openweather
+from ..core import ForecastFrame, Provider, ensure_schema, resample_frame
+from ..normalize import empty_frame, normalize_openweather
 
 logger = logging.getLogger(__name__)
+
+
+class OpenWeatherAuthError(RuntimeError):
+    """Raised when OpenWeather rejects the API key."""
+
+    def __init__(self, status: Optional[int], detail: str) -> None:
+        message = f"OpenWeather authentication failed with status {status}{detail}"
+        super().__init__(message)
+        self.status = status
+        self.detail = detail
 
 
 class OpenWeatherProvider(Provider):
     API_ENDPOINT = "https://api.openweathermap.org/data/3.0/onecall"
     API_ENDPOINT_V25 = "https://api.openweathermap.org/data/2.5/onecall"
+    API_ENDPOINT_FORECAST = "https://api.openweathermap.org/data/2.5/forecast"
+    API_ENDPOINT_CURRENT = "https://api.openweathermap.org/data/2.5/weather"
 
     def __init__(
         self,
@@ -36,6 +48,7 @@ class OpenWeatherProvider(Provider):
         retries: int = 3,
         backoff: float = 1.0,
         skip_on_auth_failure: bool = True,
+        api_mode: str = "auto",  # auto | onecall | forecast
     ) -> None:
         super().__init__(
             "openweather",
@@ -55,16 +68,31 @@ class OpenWeatherProvider(Provider):
         self.backoff = backoff
         self.skip_on_auth_failure = skip_on_auth_failure
         self._auth_failure_logged = False
+        self._permanently_disabled = False
+        self.api_mode = api_mode.lower()
+        self._force_forecast_only = self.api_mode == "forecast"
 
     def get_hourly(self, start: datetime, end: datetime) -> ForecastFrame:
+        # Skip provider if permanently disabled due to auth failure
+        if self._permanently_disabled:
+            return ForecastFrame(empty_frame(), {"source": self.name, "skipped": True})
+
         start_ts = self._as_utc_timestamp(start)
         end_ts = self._as_utc_timestamp(end)
 
         def _fetch() -> pd.DataFrame:
-            payload = self._request()
-            frame = normalize_openweather(payload)
+            mode, payload = self._request()
+            if mode == "none" or payload is None:
+                return empty_frame()
+
+            frame = normalize_openweather(payload, mode=mode)
             if frame.empty:
                 return frame
+
+            if mode == "forecast":
+                # Forecast API provides 3-hour increments; resample to hourly for consistency.
+                frame = resample_frame(frame, "1h", method="interpolate")
+
             mask = (frame.index >= start_ts) & (frame.index <= end_ts)
             return frame.loc[mask]
 
@@ -85,10 +113,40 @@ class OpenWeatherProvider(Provider):
         }
         return ForecastFrame(filtered, metadata)
 
-    def _request(self) -> Dict[str, Any]:
+    def _request(self) -> Tuple[str, Optional[Dict[str, Any]]]:
         if not self.api_key:
             raise RuntimeError("OPENWEATHER_API_KEY is not configured")
 
+        if self._permanently_disabled:
+            return "none", None
+
+        mode = self.api_mode
+        if self._force_forecast_only:
+            return "forecast", self._request_forecast()
+
+        if mode == "forecast":
+            return "forecast", self._request_forecast()
+
+        if mode == "onecall":
+            return "onecall", self._request_onecall()
+
+        # Auto-detect: try One Call, fall back to forecast on failure/auth issues.
+        try:
+            return "onecall", self._request_onecall()
+        except OpenWeatherAuthError as exc:
+            logger.info(
+                "OpenWeather One Call not available (%s%s); falling back to 3-hour forecast API.",
+                exc.status,
+                exc.detail,
+            )
+            self._force_forecast_only = True
+            return "forecast", self._request_forecast()
+        except Exception as exc:  # pragma: no cover - network or API failure
+            logger.warning("OpenWeather One Call request failed (%s); using forecast API instead.", exc)
+            self._force_forecast_only = True
+            return "forecast", self._request_forecast()
+
+    def _request_onecall(self) -> Dict[str, Any]:
         params: Dict[str, Any] = {
             "lat": self.latitude,
             "lon": self.longitude,
@@ -96,24 +154,24 @@ class OpenWeatherProvider(Provider):
             "units": self.units,
             "exclude": "minutely,daily,alerts",
         }
-
         primary_url = self.base_url or self.API_ENDPOINT
-        fallbacks = []
-        if primary_url.rstrip("/") != self.API_ENDPOINT_V25:
-            fallbacks.append(self.API_ENDPOINT_V25)
-        endpoints = [primary_url, *fallbacks]
-        tried_urls: list[str] = []
+        endpoints = [primary_url]
+        tried_urls: List[str] = []
 
         for url in endpoints:
             tried_urls.append(url)
-            auth_error: Optional[tuple[int, str]] = None
+            auth_error: Optional[Tuple[int, str]] = None
             last_exc: Optional[Exception] = None
 
             for attempt in range(1, self.retries + 1):
                 try:
                     response = self.session.get(url, params=params, timeout=10)
                     response.raise_for_status()
-                    return response.json()
+                    json_data = response.json()
+                    # Validate that response contains expected structure
+                    if not isinstance(json_data, dict):
+                        raise ValueError("API response is not a valid JSON object")
+                    return json_data
                 except requests.HTTPError as exc:
                     status = self._status_code(exc)
                     detail = self._http_error_detail(exc)
@@ -129,25 +187,13 @@ class OpenWeatherProvider(Provider):
                 status, detail = auth_error
                 if url != endpoints[-1]:
                     logger.warning(
-                        "OpenWeather endpoint %s responded with %s%s; retrying with legacy API",
+                        "OpenWeather endpoint %s responded with %s%s; retrying alternative endpoint",
                         url,
                         status,
                         detail,
                     )
                     continue
-                if self.skip_on_auth_failure:
-                    if not self._auth_failure_logged:
-                        logger.error(
-                            "OpenWeather authentication failed with status %s%s; skipping provider until restart",
-                            status,
-                            detail,
-                        )
-                        self._auth_failure_logged = True
-                    return {"current": None, "hourly": []}
-                raise RuntimeError(
-                    f"OpenWeather rejected the API key with status {status}{detail}. "
-                    "Update OPENWEATHER_API_KEY or disable the provider."
-                )
+                raise OpenWeatherAuthError(status, detail)
 
             if last_exc is not None:
                 if url != endpoints[-1]:
@@ -162,6 +208,53 @@ class OpenWeatherProvider(Provider):
                 ) from last_exc
 
         raise RuntimeError(f"OpenWeather request failed for endpoints: {', '.join(tried_urls)}")
+
+    def _request_forecast(self) -> Dict[str, Any]:
+        params = {
+            "lat": self.latitude,
+            "lon": self.longitude,
+            "appid": self.api_key,
+            "units": self.units,
+        }
+        try:
+            forecast = self._request_with_retries(self.API_ENDPOINT_FORECAST, params)
+            current = self._request_with_retries(self.API_ENDPOINT_CURRENT, params)
+        except OpenWeatherAuthError:
+            if self.skip_on_auth_failure:
+                if not self._auth_failure_logged:
+                    logger.error(
+                        "OpenWeather forecast API rejected the key; provider disabled until restart. "
+                        "Verify the key at https://openweathermap.org/price",
+                    )
+                    self._auth_failure_logged = True
+                self._permanently_disabled = True
+                return {"current": None, "forecast": {"list": []}}
+            raise
+        return {"current": current, "forecast": forecast}
+
+    def _request_with_retries(self, url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, self.retries + 1):
+            try:
+                response = self.session.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict):
+                    raise ValueError(f"OpenWeather response from {url} is not a JSON object")
+                return data
+            except requests.HTTPError as exc:
+                status = self._status_code(exc)
+                detail = self._http_error_detail(exc)
+                if self.skip_on_auth_failure:
+                    if status in (401, 403):
+                        raise OpenWeatherAuthError(status, detail) from exc
+                last_exc = exc
+            except Exception as exc:  # pragma: no cover - network failure
+                last_exc = exc
+            time.sleep(self.backoff * attempt)
+        if last_exc:
+            raise RuntimeError(f"OpenWeather request failed after {self.retries} attempts for {url}: {last_exc}") from last_exc
+        raise RuntimeError(f"OpenWeather request failed for {url}")
 
     @staticmethod
     def _http_error_detail(exc: requests.HTTPError) -> str:
